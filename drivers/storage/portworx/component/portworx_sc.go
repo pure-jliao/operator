@@ -37,6 +37,8 @@ const (
 	PxDbCloudSnapshotEncryptedStorageClass = "px-db-cloud-snapshot-encrypted"
 
 	portworxProvisioner = "kubernetes.io/portworx-volume"
+
+	portworxIoProfile = "db_remote"
 )
 
 type portworxStorageClass struct {
@@ -88,7 +90,7 @@ func (c *portworxStorageClass) Reconcile(cluster *corev1.StorageCluster) error {
 			Provisioner: portworxProvisioner,
 			Parameters: map[string]string{
 				api.SpecHaLevel:   "3",
-				api.SpecIoProfile: "db",
+				api.SpecIoProfile: portworxIoProfile,
 			},
 		},
 		{
@@ -101,7 +103,7 @@ func (c *portworxStorageClass) Reconcile(cluster *corev1.StorageCluster) error {
 			Provisioner: portworxProvisioner,
 			Parameters: map[string]string{
 				api.SpecHaLevel:   "3",
-				api.SpecIoProfile: "db",
+				api.SpecIoProfile: portworxIoProfile,
 				api.SpecSecure:    "true",
 			},
 		},
