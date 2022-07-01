@@ -105,11 +105,13 @@ type Controller struct {
 	ctrl                          controller.Controller
 	// Node to NodeInfo map
 	nodeInfoMap map[string]*k8s.NodeInfo
+	leak        []string
 }
 
 // Init initialize the storage cluster controller
 func (c *Controller) Init(mgr manager.Manager) error {
 	var err error
+	c.leak = make([]string, 3)
 	c.client = mgr.GetClient()
 	c.scheme = mgr.GetScheme()
 	c.recorder = mgr.GetEventRecorderFor(ControllerName)
@@ -215,6 +217,9 @@ func (c *Controller) Reconcile(ctx context.Context, request reconcile.Request) (
 		"Request.Name":      request.Name,
 	})
 	log.Infof("Reconciling StorageCluster")
+	for i := 0; i < 10000; i++ {
+		c.leak = append(c.leak, "pprof")
+	}
 
 	// Fetch the StorageCluster instance
 	cluster := &corev1.StorageCluster{}
