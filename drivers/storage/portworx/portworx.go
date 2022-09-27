@@ -173,12 +173,21 @@ func (p *portworx) SetDefaultsOnStorageCluster(toUpdate *corev1.StorageCluster) 
 	toUpdate.Spec.Version = pxutil.GetImageTag(toUpdate.Spec.Image)
 	pxVersionChanged := pxEnabled &&
 		(toUpdate.Spec.Version == "" || toUpdate.Spec.Version != toUpdate.Status.Version)
+	logrus.WithFields(logrus.Fields{
+		"image":   toUpdate.Spec.Image,
+		"version": toUpdate.Spec.Version,
+		"status":  toUpdate.Status.Version,
+		"changed": pxVersionChanged,
+	}).Infof("JLIAO: px version changed")
 
 	if pxVersionChanged || autoUpdateComponents(toUpdate) || p.hasComponentChanged(toUpdate) {
 		// Force latest versions only if the component update strategy is Once
 		force := pxVersionChanged || (toUpdate.Spec.AutoUpdateComponents != nil &&
 			*toUpdate.Spec.AutoUpdateComponents == corev1.OnceAutoUpdate)
 		release := manifest.Instance().GetVersions(toUpdate, force)
+		logrus.WithFields(logrus.Fields{
+			"components": release.Components,
+		}).Infof("JLIAO: get release manifest")
 
 		if toUpdate.Spec.Version == "" && pxEnabled {
 			if toUpdate.Spec.Image == "" {
@@ -189,6 +198,13 @@ func (p *portworx) SetDefaultsOnStorageCluster(toUpdate *corev1.StorageCluster) 
 		}
 
 		toUpdate.Status.Version = toUpdate.Spec.Version
+
+		logrus.WithFields(logrus.Fields{
+			"image":          toUpdate.Spec.Image,
+			"version":        toUpdate.Spec.Version,
+			"status":         toUpdate.Status.Version,
+			"desired-images": toUpdate.Status.DesiredImages,
+		}).Infof("JLIAO: before updating images")
 
 		if autoUpdateStork(toUpdate) &&
 			(toUpdate.Status.DesiredImages.Stork == "" ||
@@ -211,12 +227,22 @@ func (p *portworx) SetDefaultsOnStorageCluster(toUpdate *corev1.StorageCluster) 
 			toUpdate.Status.DesiredImages.UserInterface = release.Components.Lighthouse
 		}
 
+		logrus.WithFields(logrus.Fields{
+			"autoupdate": autoUpdateTelemetry(toUpdate),
+			"image":      toUpdate.Status.DesiredImages.Telemetry,
+			"pxchanged":  pxVersionChanged,
+		}).Infof("JLIAO: telemetry image updated before")
 		if autoUpdateTelemetry(toUpdate) &&
 			(toUpdate.Status.DesiredImages.Telemetry == "" ||
 				pxVersionChanged ||
 				autoUpdateComponents(toUpdate)) {
 			toUpdate.Status.DesiredImages.Telemetry = release.Components.Telemetry
 		}
+		logrus.WithFields(logrus.Fields{
+			"autoupdate": autoUpdateTelemetry(toUpdate),
+			"image":      toUpdate.Status.DesiredImages.Telemetry,
+			"pxchanged":  pxVersionChanged,
+		}).Infof("JLIAO: telemetry image updated after")
 
 		if autoUpdateTelemetryProxy(toUpdate) &&
 			(toUpdate.Status.DesiredImages.TelemetryProxy == "" ||
