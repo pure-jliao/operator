@@ -12,3 +12,9 @@ func RequiresCheck() bool {
 	// TODO: add other scenarios here
 	return IsEKS()
 }
+
+// RunningOnCloud checks whether portworx is running on cloud
+func RunningOnCloud() bool {
+	// TODO: add other clouds
+	return IsEKS()
+}
