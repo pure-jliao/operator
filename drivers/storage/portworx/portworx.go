@@ -23,10 +23,12 @@ import (
 	"github.com/libopenstorage/operator/drivers/storage/portworx/manifest"
 	pxutil "github.com/libopenstorage/operator/drivers/storage/portworx/util"
 	corev1 "github.com/libopenstorage/operator/pkg/apis/core/v1"
+	"github.com/libopenstorage/operator/pkg/cloudprovider"
 	"github.com/libopenstorage/operator/pkg/cloudstorage"
 	"github.com/libopenstorage/operator/pkg/preflight"
 	"github.com/libopenstorage/operator/pkg/util"
 	k8sutil "github.com/libopenstorage/operator/pkg/util/k8s"
+	coreops "github.com/portworx/sched-ops/k8s/core"
 )
 
 const (
@@ -154,7 +156,65 @@ func (p *portworx) GetSelectorLabels() map[string]string {
 	return pxutil.SelectorLabels()
 }
 
-func (p *portworx) SetDefaultsOnStorageCluster(toUpdate *corev1.StorageCluster) {
+func (p *portworx) getCurrentMaxStorageNodesPerZone(
+	cluster *corev1.StorageCluster,
+	nodeList *v1.NodeList,
+	cloudProvider cloudprovider.Ops,
+) (uint32, error) {
+	storageNodeMap := make(map[string]*storageapi.StorageNode)
+
+	if pxutil.IsPortworxEnabled(cluster) {
+		storageNodeList, err := p.GetStorageNodes(cluster)
+		if err != nil {
+			logrus.Errorf("Couldn't get storage node list %v", err)
+			return 0, err
+		}
+		for _, storageNode := range storageNodeList {
+			if len(storageNode.SchedulerNodeName) != 0 && len(storageNode.Pools) > 0 {
+				storageNodeMap[storageNode.SchedulerNodeName] = storageNode
+			}
+		}
+		zoneMap := make(map[string]uint32)
+		for _, node := range nodeList.Items {
+			if _, ok := storageNodeMap[node.Name]; ok {
+				zone, err := cloudProvider.GetZone(&node)
+				if err != nil {
+					return 0, err
+				}
+				count := zoneMap[zone]
+				zoneMap[zone] = count + 1
+			}
+		}
+		maxValue := uint32(0)
+		for _, value := range zoneMap {
+			if value > maxValue {
+				maxValue = value
+			}
+		}
+		return maxValue, nil
+	}
+	return 0, fmt.Errorf("storage disabled")
+}
+
+// getDefaultMaxStorageNodesPerZone aims to return a good value for MaxStorageNodesPerZone with the
+// intention of having at least 3 nodes in the cluster.
+func getDefaultMaxStorageNodesPerZone(zoneMap map[string]uint64) uint32 {
+	numZones := len(zoneMap)
+	switch numZones {
+	case 0, 1:
+		// If there is a single Zone, have all 3 nodes in the same zone
+		return 3
+	case 2:
+		// If there are two zones, it'll be tricky since we'll always lose quorum when a zone
+		// goes down. Let's have 2 nodes in a zone so that we have a 4 node cluster.
+		return 2
+	default:
+		// In a cluster with 3 or more zones, let's have one node in each zone.
+		return 1
+	}
+}
+
+func (p *portworx) SetDefaultsOnStorageCluster(toUpdate *corev1.StorageCluster) error {
 	if toUpdate.Annotations == nil {
 		toUpdate.Annotations = make(map[string]string)
 	}
@@ -190,6 +250,33 @@ func (p *portworx) SetDefaultsOnStorageCluster(toUpdate *corev1.StorageCluster) 
 	toUpdate.Spec.Version = pxutil.GetImageTag(toUpdate.Spec.Image)
 	pxVersionChanged := pxEnabled &&
 		(toUpdate.Spec.Version == "" || toUpdate.Spec.Version != toUpdate.Status.Version)
+
+	// Set max node per zone
+	// if no value is set for any of max_storage_nodes*, try to see if can set a default value
+	if toUpdate.Spec.CloudStorage != nil &&
+		toUpdate.Spec.CloudStorage.MaxStorageNodesPerZonePerNodeGroup == nil &&
+		toUpdate.Spec.CloudStorage.MaxStorageNodesPerZone == nil &&
+		toUpdate.Spec.CloudStorage.MaxStorageNodes == nil {
+		maxStorageNodesPerZone := uint32(0)
+		if toUpdate.Status.Phase == "" {
+			// Let's do this only when it's a fresh install of px
+			maxStorageNodesPerZone = getDefaultMaxStorageNodesPerZone(p.zoneToInstancesMap)
+		} else {
+			// Upgrade scenario
+			if pxVersionChanged {
+				// If PX image is not changing, we don't have to update the values. This is to prevent pod restarts
+				nodeList, err := coreops.Instance().GetNodes()
+				if err != nil {
+					return err
+				}
+				maxStorageNodesPerZone, err = p.getCurrentMaxStorageNodesPerZone(toUpdate, nodeList, cloudprovider.Get())
+			}
+		}
+		if maxStorageNodesPerZone != 0 {
+			toUpdate.Spec.CloudStorage.MaxStorageNodesPerZone = &maxStorageNodesPerZone
+			logrus.Infof("setting spec.cloudStorage.maxStorageNodesPerZone %v", maxStorageNodesPerZone)
+		}
+	}
 
 	if pxVersionChanged || autoUpdateComponents(toUpdate) || p.hasComponentChanged(toUpdate) {
 		// Force latest versions only if the component update strategy is Once
@@ -379,6 +466,7 @@ func (p *portworx) SetDefaultsOnStorageCluster(toUpdate *corev1.StorageCluster) 
 	}
 
 	setDefaultAutopilotProviders(toUpdate)
+	return nil
 }
 
 func (p *portworx) PreInstall(cluster *corev1.StorageCluster) error {

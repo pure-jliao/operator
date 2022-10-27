@@ -8,6 +8,7 @@ import (
 
 	"github.com/libopenstorage/cloudops"
 	"github.com/libopenstorage/operator/pkg/preflight"
+	coreops "github.com/portworx/sched-ops/k8s/core"
 )
 
 const (
@@ -47,6 +48,23 @@ func (d *defaultProvider) GetZone(node *v1.Node) (string, error) {
 // Get returns the cloud provider
 func Get() Ops {
 	return New(preflight.Instance().ProviderName())
+}
+
+// GetZoneMap returns zone map
+func GetZoneMap() (map[string]uint64, error) {
+	zoneMap := make(map[string]uint64)
+	nodeList, err := coreops.Instance().GetNodes()
+	if err != nil {
+		return zoneMap, err
+	}
+	cloudProvider := Get()
+	for _, node := range nodeList.Items {
+		if zone, err := cloudProvider.GetZone(&node); err == nil {
+			instancesCount := zoneMap[zone]
+			zoneMap[zone] = instancesCount + 1
+		}
+	}
+	return zoneMap, nil
 }
 
 // New returns a new implementation of the cloud provider
