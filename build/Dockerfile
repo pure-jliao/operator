@@ -2,9 +2,10 @@ FROM registry.access.redhat.com/ubi8-minimal:8.7-1049
 
 RUN microdnf update
 RUN microdnf --enablerepo=rhel-7-server-rpms \
--y update-minimal --security --sec-severity=Important --sec-severity=Critical;\
+-y update-minimal --security --sec-severity=Important --sec-severity=Critical --sec-severity=Moderate;\
 microdnf clean all
 RUN microdnf install -y tar
+RUN microdnf update -y libksba libsolv
 
 USER nobody
 
