@@ -50,6 +50,9 @@ const (
 	defaultNewPrometheusConfigReloaderImage = "quay.io/prometheus-operator/prometheus-config-reloader:v0.56.3"
 	defaultNewAlertManagerImage             = "quay.io/prometheus/alertmanager:v0.24.0"
 
+	// defaultPauseImage is the default image used by portworx-api and kvdb containers
+	defaultPauseImage = k8sutil.DefaultK8SRegistryPath + "/pause:3.1"
+
 	defaultManifestRefreshInterval = 3 * time.Hour
 )
 
@@ -61,6 +64,7 @@ var (
 // Release is a single release object with images for different components
 type Release struct {
 	Stork                      string `yaml:"stork,omitempty"`
+	StorkScheduler             string `yaml:"storkScheduler,omitempty"`
 	Lighthouse                 string `yaml:"lighthouse,omitempty"`
 	Autopilot                  string `yaml:"autopilot,omitempty"`
 	NodeWiper                  string `yaml:"nodeWiper,omitempty"`
@@ -82,6 +86,8 @@ type Release struct {
 	MetricsCollectorProxy      string `yaml:"metricsCollectorProxy,omitempty"`
 	LogUploader                string `yaml:"logUploader,omitempty"`
 	TelemetryProxy             string `yaml:"telemetryProxy,omitempty"` // Use a new field for easy backward compatibility
+	Pause                      string `yaml:"pause,omitempty"`
+	PVCController              string `yaml:"pvcController,omitempty"`
 	PxRepo                     string `yaml:"pxRepo,omitempty"`
 }
 
@@ -210,13 +216,15 @@ func defaultRelease(
 	rel := &Version{
 		PortworxVersion: DefaultPortworxVersion,
 		Components: Release{
-			Stork:      defaultStorkImage,
+			Pause:      defaultPauseImage,
 			Autopilot:  defaultAutopilotImage,
 			Lighthouse: defaultLighthouseImage,
 			NodeWiper:  defaultNodeWiperImage,
 			PxRepo:     defaultPxRepoImage,
 		},
 	}
+	fillStorkDefaults(rel, k8sVersion)
+	fillPVCControllerDefaults(rel, k8sVersion)
 	fillCSIDefaults(rel, k8sVersion)
 	fillPrometheusDefaults(rel, k8sVersion)
 	fillTelemetryDefaults(rel)
@@ -227,8 +235,8 @@ func fillDefaults(
 	rel *Version,
 	k8sVersion *version.Version,
 ) {
-	if rel.Components.Stork == "" {
-		rel.Components.Stork = defaultStorkImage
+	if rel.Components.Pause == "" {
+		rel.Components.Pause = defaultPauseImage
 	}
 	if rel.Components.Autopilot == "" {
 		rel.Components.Autopilot = defaultAutopilotImage
@@ -242,9 +250,47 @@ func fillDefaults(
 	if rel.Components.PxRepo == "" {
 		rel.Components.PxRepo = defaultPxRepoImage
 	}
+	fillStorkDefaults(rel, k8sVersion)
+	fillPVCControllerDefaults(rel, k8sVersion)
 	fillCSIDefaults(rel, k8sVersion)
 	fillPrometheusDefaults(rel, k8sVersion)
 	fillTelemetryDefaults(rel)
+}
+
+func fillStorkDefaults(
+	rel *Version,
+	k8sVersion *version.Version,
+) {
+	if rel.Components.Stork == "" {
+		rel.Components.Stork = defaultStorkImage
+	}
+	if rel.Components.StorkScheduler == "" {
+		storkSchedImage := "gcr.io/google_containers/kube-scheduler-amd64"
+		if k8sutil.IsNewKubernetesRegistry(k8sVersion) {
+			storkSchedImage = k8sutil.DefaultK8SRegistryPath + "/kube-scheduler-amd64"
+		}
+		if k8sVersion.GreaterThanOrEqual(pxutil.MinK8sVersionForPinnedStorkScheduler) &&
+			k8sVersion.LessThan(pxutil.MinK8sVersionForKubeSchedulerConfiguration) {
+			storkSchedImage = storkSchedImage + ":v" + pxutil.PinnedStorkSchedulerVersion.String()
+		} else {
+			storkSchedImage = storkSchedImage + ":v" + k8sVersion.String()
+		}
+		rel.Components.StorkScheduler = storkSchedImage
+	}
+}
+
+func fillPVCControllerDefaults(
+	rel *Version,
+	k8sVersion *version.Version,
+) {
+	if rel.Components.PVCController == "" {
+		pvcControllerImage := "gcr.io/google_containers/kube-controller-manager-amd64"
+		if k8sutil.IsNewKubernetesRegistry(k8sVersion) {
+			pvcControllerImage = k8sutil.DefaultK8SRegistryPath + "/kube-controller-manager-amd64"
+		}
+		pvcControllerImage = pvcControllerImage + ":v" + k8sVersion.String()
+		rel.Components.PVCController = pvcControllerImage
+	}
 }
 
 func fillCSIDefaults(

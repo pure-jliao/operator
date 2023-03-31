@@ -220,7 +220,10 @@ func (p *portworx) GetKVDBPodSpec(
 		return v1.PodSpec{}, err
 	}
 
-	containers := t.kvdbContainer()
+	containers, err := t.kvdbContainer()
+	if err != nil {
+		return v1.PodSpec{}, err
+	}
 	podSpec := v1.PodSpec{
 		HostNetwork:        true,
 		RestartPolicy:      v1.RestartPolicyAlways,
@@ -530,8 +533,19 @@ func (t *template) portworxContainer(cluster *corev1.StorageCluster) v1.Containe
 	return container
 }
 
-func (t *template) kvdbContainer() v1.Container {
-	kvdbProxyImage := util.GetImageURN(t.cluster, pxutil.ImageNamePause)
+func getDesiredPortworxKVDBImage(cluster *corev1.StorageCluster) (string, error) {
+	if cluster.Status.DesiredImages != nil && cluster.Status.DesiredImages.Pause != "" {
+		return util.GetImageURN(cluster, cluster.Status.DesiredImages.Pause), nil
+	}
+	return "", fmt.Errorf("portworx-api container image is empty")
+}
+
+func (t *template) kvdbContainer() (v1.Container, error) {
+	kvdbProxyImage, err := pxutil.GetDesiredPauseImage(t.cluster)
+	if err != nil {
+		logrus.WithError(err).Errorf("failed to get portworx-kvdb container image")
+		return v1.Container{}, err
+	}
 	kvdbTargetPort := 9019
 	if t.startPort != pxutil.DefaultStartPort {
 		kvdbTargetPort = t.startPort + 15
@@ -559,7 +573,7 @@ func (t *template) kvdbContainer() v1.Container {
 				},
 			},
 		},
-	}
+	}, nil
 }
 
 func (t *template) csiRegistrarContainer() *v1.Container {

@@ -75,6 +75,9 @@ const (
 	StoragePartitioningEnvKey = "ENABLE_ASG_STORAGE_PARTITIONING"
 	// DefaultStorageClusterUniqueLabelKey is the controller revision hash of storage cluster
 	DefaultStorageClusterUniqueLabelKey = apps.ControllerRevisionHashLabelKey
+
+	httpPrefix  = "http://"
+	httpsPrefix = "https://"
 )
 
 var (
@@ -134,6 +137,11 @@ func getMergedCommonRegistries(cluster *corev1.StorageCluster) map[string]bool {
 func GetImageURN(cluster *corev1.StorageCluster, image string) string {
 	if image == "" {
 		return ""
+	}
+
+	// If image path has http or https prefix, do nothing
+	if strings.Contains(strings.ToLower(image), httpPrefix) || strings.Contains(strings.ToLower(image), httpsPrefix) {
+		return image
 	}
 
 	registryAndRepo := cluster.Spec.CustomImageRegistry

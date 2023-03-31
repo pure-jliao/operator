@@ -4,10 +4,7 @@ import (
 	"context"
 
 	"github.com/hashicorp/go-version"
-	pxutil "github.com/libopenstorage/operator/drivers/storage/portworx/util"
-	corev1 "github.com/libopenstorage/operator/pkg/apis/core/v1"
-	"github.com/libopenstorage/operator/pkg/util"
-	k8sutil "github.com/libopenstorage/operator/pkg/util/k8s"
+	"github.com/sirupsen/logrus"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -17,6 +14,11 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	pxutil "github.com/libopenstorage/operator/drivers/storage/portworx/util"
+	corev1 "github.com/libopenstorage/operator/pkg/apis/core/v1"
+	"github.com/libopenstorage/operator/pkg/util"
+	k8sutil "github.com/libopenstorage/operator/pkg/util/k8s"
 )
 
 const (
@@ -186,7 +188,11 @@ func (c *portworxAPI) createDaemonSet(
 		existingImageName = existingDaemonSet.Spec.Template.Spec.Containers[0].Image
 	}
 
-	imageName := util.GetImageURN(cluster, pxutil.ImageNamePause)
+	imageName, err := pxutil.GetDesiredPauseImage(cluster)
+	if err != nil {
+		logrus.WithError(err).Errorf("failed to get portworx-api container image")
+		return err
+	}
 	serviceAccount := pxutil.PortworxServiceAccountName(cluster)
 	existingServiceAccount := existingDaemonSet.Spec.Template.Spec.ServiceAccountName
 

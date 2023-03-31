@@ -636,6 +636,7 @@ type StorageClusterStatus struct {
 // ComponentImages is a collection of all the images managed by the operator
 type ComponentImages struct {
 	Stork                      string `json:"stork,omitempty"`
+	StorkScheduler             string `json:"storkScheduler,omitempty"`
 	UserInterface              string `json:"userInterface,omitempty"`
 	Autopilot                  string `json:"autopilot,omitempty"`
 	CSINodeDriverRegistrar     string `json:"csiNodeDriverRegistrar,omitempty"`
@@ -656,6 +657,8 @@ type ComponentImages struct {
 	MetricsCollectorProxy      string `json:"metricsCollectorProxy,omitempty"` // TODO: use TelemetryProxy only
 	LogUploader                string `json:"logUploader,omitempty"`
 	TelemetryProxy             string `json:"telemetryProxy,omitempty"`
+	Pause                      string `json:"pause,omitempty"`
+	PVCController              string `json:"pvcController,omitempty"`
 	PxRepo                     string `json:"pxRepo,omitempty"`
 }
 

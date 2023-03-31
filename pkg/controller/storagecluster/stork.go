@@ -10,10 +10,6 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-version"
-	corev1 "github.com/libopenstorage/operator/pkg/apis/core/v1"
-	"github.com/libopenstorage/operator/pkg/constants"
-	"github.com/libopenstorage/operator/pkg/util"
-	k8sutil "github.com/libopenstorage/operator/pkg/util/k8s"
 	"github.com/sirupsen/logrus"
 	apps "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
@@ -28,6 +24,12 @@ import (
 	schedconfig "k8s.io/kube-scheduler/config/v1beta3"
 	schedconfigapi "k8s.io/kubernetes/pkg/scheduler/apis/config/v1beta3"
 	"sigs.k8s.io/yaml"
+
+	pxutil "github.com/libopenstorage/operator/drivers/storage/portworx/util"
+	corev1 "github.com/libopenstorage/operator/pkg/apis/core/v1"
+	"github.com/libopenstorage/operator/pkg/constants"
+	"github.com/libopenstorage/operator/pkg/util"
+	k8sutil "github.com/libopenstorage/operator/pkg/util/k8s"
 )
 
 const (
@@ -581,8 +583,8 @@ func (c *Controller) createStorkDeployment(
 	if err != nil {
 		return err
 	}
-	imageName := getDesiredStorkImage(cluster)
-	if imageName == "" {
+	imageName, err := getDesiredStorkImage(cluster)
+	if err != nil {
 		return fmt.Errorf("stork image cannot be empty")
 	}
 
@@ -629,7 +631,6 @@ func (c *Controller) createStorkDeployment(
 	sort.Strings(argList)
 	command := append([]string{"/stork"}, argList...)
 
-	imageName = util.GetImageURN(cluster, imageName)
 	hostNetwork := cluster.Spec.Stork.HostNetwork != nil && *cluster.Spec.Stork.HostNetwork
 
 	envMap := c.Driver.GetStorkEnvMap(cluster)
@@ -849,36 +850,14 @@ func (c *Controller) createStorkSchedDeployment(
 		return err
 	}
 
-	kubeSchedImage := "gcr.io/google_containers/kube-scheduler-amd64"
-	if k8sutil.IsNewKubernetesRegistry(c.kubernetesVersion) {
-		kubeSchedImage = k8sutil.DefaultK8SRegistryPath + "/kube-scheduler-amd64"
-	}
-
-	k8sMinVersionForPinnedStorkScheduler, err := version.NewVersion(minK8sVersionForPinnedStorkScheduler)
+	imageName, err := getDesiredStorkSchedulerImage(cluster)
 	if err != nil {
-		logrus.WithError(err).Errorf("Could not parse version %s", k8sMinVersionForPinnedStorkScheduler)
+		logrus.WithError(err).Errorf("failed to get stork scheduler image")
 		return err
 	}
-
-	k8sMinVersionForKubeSchedulerConfiguration, err := version.NewVersion(minK8sVersionForKubeSchedulerConfiguration)
-	if err != nil {
-		logrus.WithError(err).Errorf("Could not parse version %s", k8sMinVersionForKubeSchedulerConfiguration)
-		return err
-	}
-
-	if c.kubernetesVersion.GreaterThanOrEqual(k8sMinVersionForPinnedStorkScheduler) &&
-		c.kubernetesVersion.LessThan(k8sMinVersionForKubeSchedulerConfiguration) {
-		kubeSchedImage = kubeSchedImage + ":v" + pinnedStorkSchedulerVersion
-	} else {
-		kubeSchedImage = kubeSchedImage + ":v" + c.kubernetesVersion.String()
-	}
-	imageName := util.GetImageURN(
-		cluster,
-		kubeSchedImage,
-	)
 
 	var command []string
-	if c.kubernetesVersion.GreaterThanOrEqual(k8sMinVersionForKubeSchedulerConfiguration) {
+	if c.kubernetesVersion.GreaterThanOrEqual(pxutil.MinK8sVersionForKubeSchedulerConfiguration) {
 		command = []string{
 			"/usr/local/bin/kube-scheduler",
 			"--bind-address=0.0.0.0",
@@ -940,7 +919,7 @@ func (c *Controller) createStorkSchedDeployment(
 		command,
 		targetCPUQuantity,
 		updatedTopologySpreadConstraints,
-		c.kubernetesVersion.GreaterThanOrEqual(k8sMinVersionForKubeSchedulerConfiguration))
+		c.kubernetesVersion.GreaterThanOrEqual(pxutil.MinK8sVersionForKubeSchedulerConfiguration))
 
 	modified := existingImage != imageName ||
 		!reflect.DeepEqual(existingCommand, command) ||
@@ -1155,13 +1134,21 @@ func (c *Controller) checkForMissingSelectorLabel(existingDeployment *apps.Deplo
 	return nil
 }
 
-func getDesiredStorkImage(cluster *corev1.StorageCluster) string {
+func getDesiredStorkImage(cluster *corev1.StorageCluster) (string, error) {
 	if cluster.Spec.Stork.Image != "" {
-		return cluster.Spec.Stork.Image
-	} else if cluster.Status.DesiredImages != nil {
-		return cluster.Status.DesiredImages.Stork
+		return util.GetImageURN(cluster, cluster.Spec.Stork.Image), nil
 	}
-	return ""
+	if cluster.Status.DesiredImages != nil && cluster.Status.DesiredImages.Stork != "" {
+		return util.GetImageURN(cluster, cluster.Status.DesiredImages.Stork), nil
+	}
+	return "", fmt.Errorf("stork image is empty")
+}
+
+func getDesiredStorkSchedulerImage(cluster *corev1.StorageCluster) (string, error) {
+	if cluster.Status.DesiredImages != nil && cluster.Status.DesiredImages.StorkScheduler != "" {
+		return util.GetImageURN(cluster, cluster.Status.DesiredImages.StorkScheduler), nil
+	}
+	return "", fmt.Errorf("stork scheduler image is empty")
 }
 
 func getDesiredStorkVolumesAndMounts(

@@ -387,9 +387,25 @@ func (p *portworx) SetDefaultsOnStorageCluster(toUpdate *corev1.StorageCluster) 
 
 		if autoUpdateStork(toUpdate) &&
 			(toUpdate.Status.DesiredImages.Stork == "" ||
+				toUpdate.Status.DesiredImages.StorkScheduler == "" ||
 				pxVersionChanged ||
 				autoUpdateComponents(toUpdate)) {
 			toUpdate.Status.DesiredImages.Stork = release.Components.Stork
+			toUpdate.Status.DesiredImages.StorkScheduler = release.Components.StorkScheduler
+		}
+
+		if autoUpdatePVCController(toUpdate) &&
+			(toUpdate.Status.DesiredImages.PVCController == "" ||
+				pxVersionChanged ||
+				autoUpdateComponents(toUpdate)) {
+			toUpdate.Status.DesiredImages.PVCController = release.Components.PVCController
+		}
+
+		if autoUpdatePause(toUpdate) &&
+			(toUpdate.Status.DesiredImages.Pause == "" ||
+				pxVersionChanged ||
+				autoUpdateComponents(toUpdate)) {
+			toUpdate.Status.DesiredImages.Pause = release.Components.Pause
 		}
 
 		if autoUpdateAutopilot(toUpdate) &&
@@ -496,6 +512,15 @@ func (p *portworx) SetDefaultsOnStorageCluster(toUpdate *corev1.StorageCluster) 
 
 	if !autoUpdateStork(toUpdate) {
 		toUpdate.Status.DesiredImages.Stork = ""
+		toUpdate.Status.DesiredImages.StorkScheduler = ""
+	}
+
+	if !autoUpdatePVCController(toUpdate) {
+		toUpdate.Status.DesiredImages.PVCController = ""
+	}
+
+	if !autoUpdatePause(toUpdate) {
+		toUpdate.Status.DesiredImages.Pause = ""
 	}
 
 	if !autoUpdateAutopilot(toUpdate) {
@@ -1429,6 +1454,8 @@ func removeDeprecatedFields(
 
 func (p *portworx) hasComponentChanged(cluster *corev1.StorageCluster) bool {
 	return hasStorkChanged(cluster) ||
+		hasPVCControllerChanged(cluster) ||
+		hasPauseChanged(cluster) ||
 		hasAutopilotChanged(cluster) ||
 		hasLighthouseChanged(cluster) ||
 		hasCSIChanged(cluster) ||
@@ -1443,7 +1470,17 @@ func (p *portworx) hasComponentChanged(cluster *corev1.StorageCluster) bool {
 }
 
 func hasStorkChanged(cluster *corev1.StorageCluster) bool {
-	return autoUpdateStork(cluster) && cluster.Status.DesiredImages.Stork == ""
+	return autoUpdateStork(cluster) &&
+		(cluster.Status.DesiredImages.Stork == "" ||
+			cluster.Status.DesiredImages.StorkScheduler == "")
+}
+
+func hasPVCControllerChanged(cluster *corev1.StorageCluster) bool {
+	return autoUpdatePVCController(cluster) && cluster.Status.DesiredImages.PVCController == ""
+}
+
+func hasPauseChanged(cluster *corev1.StorageCluster) bool {
+	return autoUpdatePause(cluster) && cluster.Status.DesiredImages.Pause == ""
 }
 
 func hasAutopilotChanged(cluster *corev1.StorageCluster) bool {
@@ -1567,6 +1604,14 @@ func autoUpdateLighthouse(cluster *corev1.StorageCluster) bool {
 	return cluster.Spec.UserInterface != nil &&
 		cluster.Spec.UserInterface.Enabled &&
 		cluster.Spec.UserInterface.Image == ""
+}
+
+func autoUpdatePVCController(cluster *corev1.StorageCluster) bool {
+	return pxutil.IsPVCControllerEnabled(cluster)
+}
+
+func autoUpdatePause(cluster *corev1.StorageCluster) bool {
+	return pxutil.IsPortworxEnabled(cluster)
 }
 
 func autoUpdateComponents(cluster *corev1.StorageCluster) bool {

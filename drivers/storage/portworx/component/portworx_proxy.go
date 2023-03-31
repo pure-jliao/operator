@@ -227,7 +227,11 @@ func (c *portworxProxy) createDaemonSet(
 		existingImageName = existingDaemonSet.Spec.Template.Spec.Containers[0].Image
 	}
 
-	imageName := util.GetImageURN(cluster, k8sutil.DefaultK8SRegistryPath+"/pause:3.1")
+	imageName, err := pxutil.GetDesiredPauseImage(cluster)
+	if err != nil {
+		logrus.WithError(err).Errorf("failed to get portworx-proxy container image")
+		return err
+	}
 
 	modified := existingImageName != imageName ||
 		util.HasPullSecretChanged(cluster, existingDaemonSet.Spec.Template.Spec.ImagePullSecrets) ||

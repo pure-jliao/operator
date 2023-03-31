@@ -214,8 +214,6 @@ const (
 
 	// ErrMsgGrpcConnection error message if failed to connect to GRPC server
 	ErrMsgGrpcConnection = "error connecting to GRPC server"
-	// ImageNamePause is the container image to use for the pause container
-	ImageNamePause = k8sutil.DefaultK8SRegistryPath + "/pause:3.1"
 
 	// userVolumeNamePrefix prefix used for user volume names to avoid name conflicts with existing volumes
 	userVolumeNamePrefix = "user-"
@@ -271,6 +269,14 @@ var (
 	// MinimumPxVersionAutoTLS is a minimal PX version that supports "auto-TLS" setup
 	MinimumPxVersionAutoTLS, _ = version.NewVersion("3.0.0")
 
+	// Stork scheduler cannot run with kube-scheduler image > v1.22
+	// PinnedStorkSchedulerVersion is the pinned stork scheduler version
+	PinnedStorkSchedulerVersion, _ = version.NewVersion("1.21.4")
+	// MinK8sVersionForKubeSchedulerConfiguration is the min k8s version for pinned stork scheduler
+	MinK8sVersionForPinnedStorkScheduler, _ = version.NewVersion("1.22.0")
+	// MinK8sVersionForKubeSchedulerConfiguration is the min k8s version for kube scheduler configuration
+	MinK8sVersionForKubeSchedulerConfiguration, _ = version.NewVersion("1.23.0")
+
 	// ConfigMapNameRegex regex of configMap.
 	ConfigMapNameRegex = regexp.MustCompile("[^a-zA-Z0-9]+")
 )
@@ -298,6 +304,27 @@ func IsPortworxEnabled(cluster *corev1.StorageCluster) bool {
 // IsCSIEnabled returns true if CSI is not disabled by the feature flag
 func IsCSIEnabled(cluster *corev1.StorageCluster) bool {
 	return IsPortworxEnabled(cluster) && cluster.Spec.CSI != nil && cluster.Spec.CSI.Enabled
+}
+
+func IsPVCControllerEnabled(cluster *corev1.StorageCluster) bool {
+	enabled, err := strconv.ParseBool(cluster.Annotations[AnnotationPVCController])
+	if err == nil {
+		return enabled
+	}
+
+	// If portworx is disabled, then do not run pvc controller unless explicitly told to.
+	if !IsPortworxEnabled(cluster) {
+		return false
+	}
+
+	// Enable PVC controller for managed kubernetes services. Also enable it
+	// if Portworx is not deployed in kube-system namespace.
+	if IsPKS(cluster) || IsEKS(cluster) ||
+		IsGKE(cluster) || IsAKS(cluster) ||
+		IsOKE(cluster) || cluster.Namespace != "kube-system" {
+		return true
+	}
+	return false
 }
 
 // IsPKS returns true if the annotation has a PKS annotation and is true value
@@ -1317,4 +1344,13 @@ func SetTelemetryCertOwnerRef(
 	secret.OwnerReferences = references
 
 	return k8sClient.Update(context.TODO(), secret)
+}
+
+// GetDesiredPauseImage returns the complete pause image name based on the registry and repo
+// used by portworx-proxy, portworx-api and portworx-kvdb containers
+func GetDesiredPauseImage(cluster *corev1.StorageCluster) (string, error) {
+	if cluster.Status.DesiredImages != nil && cluster.Status.DesiredImages.Pause != "" {
+		return util.GetImageURN(cluster, cluster.Status.DesiredImages.Pause), nil
+	}
+	return "", fmt.Errorf("pause image is empty")
 }

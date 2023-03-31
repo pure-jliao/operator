@@ -3915,6 +3915,9 @@ spec:
                   stork:
                     type: string
                     description: Desired image for stork.
+                  storkScheduler:
+                    type: string
+                    description: Desired image for stork scheduler.
                   userInterface:
                     type: string
                     description: Desired image for user interface.
@@ -3975,6 +3978,12 @@ spec:
                   logUploader:
                     type: string
                     description: Desired image for log uploader.
+                  pause:
+                    type: string
+                    description: Desired image for portworx api and kvdb container.
+                  pvcController:
+                    type: string
+                    description: Desired image for portworx PVC controller.
                   pxRepo:
                     type: string
                     description: Desired image for pxRepo.

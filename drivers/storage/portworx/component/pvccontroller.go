@@ -4,14 +4,9 @@ import (
 	"context"
 	"fmt"
 	"reflect"
-	"strconv"
 
 	"github.com/hashicorp/go-version"
-	pxutil "github.com/libopenstorage/operator/drivers/storage/portworx/util"
-	corev1 "github.com/libopenstorage/operator/pkg/apis/core/v1"
-	"github.com/libopenstorage/operator/pkg/constants"
-	"github.com/libopenstorage/operator/pkg/util"
-	k8sutil "github.com/libopenstorage/operator/pkg/util/k8s"
+	"github.com/sirupsen/logrus"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -23,6 +18,12 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	pxutil "github.com/libopenstorage/operator/drivers/storage/portworx/util"
+	corev1 "github.com/libopenstorage/operator/pkg/apis/core/v1"
+	"github.com/libopenstorage/operator/pkg/constants"
+	"github.com/libopenstorage/operator/pkg/util"
+	k8sutil "github.com/libopenstorage/operator/pkg/util/k8s"
 )
 
 const (
@@ -86,24 +87,7 @@ func (c *pvcController) IsPausedForMigration(cluster *corev1.StorageCluster) boo
 }
 
 func (c *pvcController) IsEnabled(cluster *corev1.StorageCluster) bool {
-	enabled, err := strconv.ParseBool(cluster.Annotations[pxutil.AnnotationPVCController])
-	if err == nil {
-		return enabled
-	}
-
-	// If portworx is disabled, then do not run pvc controller unless explicitly told to.
-	if !pxutil.IsPortworxEnabled(cluster) {
-		return false
-	}
-
-	// Enable PVC controller for managed kubernetes services. Also enable it
-	// if Portworx is not deployed in kube-system namespace.
-	if pxutil.IsPKS(cluster) || pxutil.IsEKS(cluster) ||
-		pxutil.IsGKE(cluster) || pxutil.IsAKS(cluster) ||
-		pxutil.IsOKE(cluster) || cluster.Namespace != "kube-system" {
-		return true
-	}
-	return false
+	return pxutil.IsPVCControllerEnabled(cluster)
 }
 
 func (c *pvcController) Reconcile(cluster *corev1.StorageCluster) error {
@@ -295,14 +279,11 @@ func (c *pvcController) createDeployment(
 		return err
 	}
 
-	kubeControllerImage := "gcr.io/google_containers/kube-controller-manager-amd64"
-	if k8sutil.IsNewKubernetesRegistry(&c.k8sVersion) {
-		kubeControllerImage = k8sutil.DefaultK8SRegistryPath + "/kube-controller-manager-amd64"
+	imageName, err := getDesiredPVCControllerImage(cluster)
+	if err != nil {
+		logrus.WithError(err).Errorf("failed to get portworx pvc controller image")
+		return err
 	}
-	imageName := util.GetImageURN(
-		cluster,
-		kubeControllerImage+":v"+c.k8sVersion.String(),
-	)
 
 	command := []string{
 		"kube-controller-manager",
@@ -375,6 +356,13 @@ func (c *pvcController) createDeployment(
 	}
 	c.isCreated = true
 	return nil
+}
+
+func getDesiredPVCControllerImage(cluster *corev1.StorageCluster) (string, error) {
+	if cluster.Status.DesiredImages != nil && cluster.Status.DesiredImages.PVCController != "" {
+		return util.GetImageURN(cluster, cluster.Status.DesiredImages.PVCController), nil
+	}
+	return "", fmt.Errorf("portworx pvc controller image is empty")
 }
 
 func (c *pvcController) getPVCControllerDeploymentSpec(
